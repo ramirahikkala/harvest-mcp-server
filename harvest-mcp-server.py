@@ -242,6 +242,66 @@ async def list_tasks(is_active: bool = None):
     return json.dumps(response, indent=2)
 
 
+@mcp.tool()
+async def get_unsubmitted_timesheets(
+    user_id: int = None,
+    from_date: str = None,
+    to_date: str = None,
+    page: int = None,
+    per_page: int = None,
+):
+    """Get unsubmitted timesheets (time entries that haven't been submitted for approval).
+    
+    This function queries for time entries that are not yet closed/submitted, which typically
+    means they are still editable and haven't been submitted for approval or invoicing.
+
+    Args:
+        user_id: Filter by specific user ID (optional)
+        from_date: Only return time entries with a spent_date on or after the given date (YYYY-MM-DD)
+        to_date: Only return time entries with a spent_date on or before the given date (YYYY-MM-DD)
+        page: The page number for pagination
+        per_page: The number of records to return per page (1-2000)
+    """
+    params = {}
+    if user_id is not None:
+        params["user_id"] = str(user_id)
+    if from_date is not None:
+        params["from"] = from_date
+    if to_date is not None:
+        params["to"] = to_date
+    if page is not None:
+        params["page"] = str(page)
+    if per_page is not None:
+        params["per_page"] = str(per_page)
+    else:
+        params["per_page"] = "200"
+
+    # Get all time entries first
+    response = await harvest_request("time_entries", params)
+    
+    # Filter for unsubmitted entries (those that are not closed)
+    unsubmitted_entries = []
+    if "time_entries" in response:
+        for entry in response["time_entries"]:
+            # Time entries that are not closed are considered unsubmitted
+            if not entry.get("is_closed", False):
+                unsubmitted_entries.append(entry)
+    
+    # Create a response structure similar to the original API response
+    filtered_response = {
+        "time_entries": unsubmitted_entries,
+        "per_page": response.get("per_page", len(unsubmitted_entries)),
+        "total_pages": 1,  # Simplified since we're filtering client-side
+        "total_entries": len(unsubmitted_entries),
+        "next_page": None,
+        "previous_page": None,
+        "page": response.get("page", 1),
+        "links": response.get("links", {})
+    }
+    
+    return json.dumps(filtered_response, indent=2)
+
+
 if __name__ == "__main__":
     # Initialize and run the server
     mcp.run(transport="stdio")

@@ -18,6 +18,7 @@ The server provides the following functionality:
 - Create new time entries
 - Start/stop timers
 - Query time entry details
+- Get unsubmitted timesheets (time entries not yet submitted for approval)
 
 ### Projects
 - List projects with filtering options
@@ -77,6 +78,8 @@ Once connected, you can ask Claude about your Harvest data with queries like:
 - "Start a timer for project [project_id] and task [task_id]"
 - "Show me all active clients"
 - "List all available tasks"
+- "Get my unsubmitted timesheets from this month"
+- "Show me unsubmitted time entries for user [user_id]"
 
 ## Customization
 
