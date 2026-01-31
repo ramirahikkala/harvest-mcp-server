@@ -71,6 +71,7 @@ mcp = FastMCP("harvest-api")
 # Get environment variables for Harvest API
 HARVEST_ACCOUNT_ID = os.environ.get("HARVEST_ACCOUNT_ID")
 HARVEST_API_KEY = os.environ.get("HARVEST_API_KEY")
+HARVEST_WORK_PERCENTAGE = float(os.environ.get("HARVEST_WORK_PERCENTAGE", "100"))
 
 if not HARVEST_ACCOUNT_ID or not HARVEST_API_KEY:
     raise ValueError(
@@ -368,6 +369,7 @@ async def get_monthly_work_percentage(
     year: int,
     month: int,
     hours_per_day: float = 7.5,
+    work_time_percentage: float = HARVEST_WORK_PERCENTAGE,
 ):
     """Calculate work percentage for a given month compared to full-time.
 
@@ -378,6 +380,7 @@ async def get_monthly_work_percentage(
         year: The year (e.g., 2025)
         month: The month (1-12)
         hours_per_day: Hours per working day (default 7.5 for Finland)
+        work_time_percentage: Part-time percentage (default from HARVEST_WORK_PERCENTAGE env var, or 100)
     """
     # Fetch time entries for the month
     from_date = f"{year}-{month:02d}-01"
@@ -434,9 +437,10 @@ async def get_monthly_work_percentage(
                 by_client[client_name] = 0.0
             by_client[client_name] += hours
 
-    # Calculate expected hours (reduced by unpaid absence)
+    # Calculate expected hours (adjusted for part-time and unpaid absence)
     working_days = count_working_days(year, month)
-    expected_hours = working_days * hours_per_day - unpaid_absence_hours
+    full_time_hours = working_days * hours_per_day
+    expected_hours = (full_time_hours - unpaid_absence_hours) * work_time_percentage / 100
 
     # Calculate percentages
     work_percentage = (total_hours / expected_hours * 100) if expected_hours > 0 else 0
@@ -445,7 +449,8 @@ async def get_monthly_work_percentage(
         "period": f"{year}-{month:02d}",
         "working_days": working_days,
         "hours_per_day": hours_per_day,
-        "expected_hours": expected_hours,
+        "work_time_percentage": work_time_percentage,
+        "expected_hours": round(expected_hours, 2),
         "summary": {
             "total_logged_hours": round(total_hours, 2),
             "unpaid_absence_hours": round(unpaid_absence_hours, 2),
