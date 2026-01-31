@@ -410,22 +410,23 @@ async def get_monthly_work_percentage(
 
     for entry in entries:
         hours = entry.get("hours", 0)
-        total_hours += hours
-
         task_name = entry.get("task", {}).get("name", "").lower()
         client_name = entry.get("client", {}).get("name", "Unknown")
 
-        # Categorize
-        if any(kw in task_name for kw in absence_keywords):
-            unpaid_absence_hours += hours
-            by_category["unpaid_absence"] += hours
-        elif any(kw in task_name for kw in holiday_keywords):
+        # Categorize (public holidays excluded from total since already in expected_hours)
+        if any(kw in task_name for kw in holiday_keywords):
             public_holiday_hours += hours
             by_category["public_holiday"] += hours
+        elif any(kw in task_name for kw in absence_keywords):
+            total_hours += hours
+            unpaid_absence_hours += hours
+            by_category["unpaid_absence"] += hours
         elif any(kw in task_name for kw in leave_keywords):
+            total_hours += hours
             paid_leave_hours += hours
             by_category["paid_leave"] += hours
         else:
+            total_hours += hours
             actual_work_hours += hours
             by_category["actual_work"] += hours
 
