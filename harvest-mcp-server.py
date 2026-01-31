@@ -438,9 +438,8 @@ async def get_monthly_work_percentage(
     working_days = count_working_days(year, month)
     expected_hours = working_days * hours_per_day
 
-    # Calculate percentages
-    paid_hours = total_hours - unpaid_absence_hours
-    work_percentage = (paid_hours / expected_hours * 100) if expected_hours > 0 else 0
+    # Calculate percentages (unpaid absence counts as work time)
+    work_percentage = (total_hours / expected_hours * 100) if expected_hours > 0 else 0
 
     result = {
         "period": f"{year}-{month:02d}",
@@ -449,7 +448,6 @@ async def get_monthly_work_percentage(
         "expected_hours": expected_hours,
         "summary": {
             "total_logged_hours": round(total_hours, 2),
-            "paid_hours": round(paid_hours, 2),
             "unpaid_absence_hours": round(unpaid_absence_hours, 2),
             "work_percentage": round(work_percentage, 1),
         },
