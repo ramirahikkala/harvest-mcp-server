@@ -418,7 +418,6 @@ async def get_monthly_work_percentage(
             public_holiday_hours += hours
             by_category["public_holiday"] += hours
         elif any(kw in task_name for kw in absence_keywords):
-            total_hours += hours
             unpaid_absence_hours += hours
             by_category["unpaid_absence"] += hours
         elif any(kw in task_name for kw in leave_keywords):
@@ -435,11 +434,11 @@ async def get_monthly_work_percentage(
                 by_client[client_name] = 0.0
             by_client[client_name] += hours
 
-    # Calculate expected hours
+    # Calculate expected hours (reduced by unpaid absence)
     working_days = count_working_days(year, month)
-    expected_hours = working_days * hours_per_day
+    expected_hours = working_days * hours_per_day - unpaid_absence_hours
 
-    # Calculate percentages (unpaid absence counts as work time)
+    # Calculate percentages
     work_percentage = (total_hours / expected_hours * 100) if expected_hours > 0 else 0
 
     result = {
