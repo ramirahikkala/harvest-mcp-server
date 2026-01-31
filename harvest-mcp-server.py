@@ -1,8 +1,69 @@
 import os
 import json
 import httpx
-from datetime import datetime
+from datetime import datetime, date
+from calendar import monthrange
 from mcp.server.fastmcp import FastMCP
+
+
+def get_finnish_public_holidays(year: int) -> list[date]:
+    """Get Finnish public holidays for a given year."""
+    from datetime import timedelta
+
+    # Fixed holidays
+    holidays = [
+        date(year, 1, 1),   # New Year's Day
+        date(year, 1, 6),   # Epiphany
+        date(year, 5, 1),   # May Day
+        date(year, 6, 20) if date(year, 6, 20).weekday() == 4 else
+            date(year, 6, 20) + timedelta(days=(4 - date(year, 6, 20).weekday()) % 7),  # Midsummer Eve (Friday)
+        date(year, 12, 6),  # Independence Day
+        date(year, 12, 24), # Christmas Eve
+        date(year, 12, 25), # Christmas Day
+        date(year, 12, 26), # Boxing Day
+    ]
+
+    # Easter-based holidays (calculate Easter Sunday)
+    # Using Anonymous Gregorian algorithm
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    easter = date(year, month, day)
+
+    holidays.extend([
+        easter - timedelta(days=2),   # Good Friday
+        easter,                        # Easter Sunday
+        easter + timedelta(days=1),    # Easter Monday
+        easter + timedelta(days=39),   # Ascension Day
+    ])
+
+    return holidays
+
+
+def count_working_days(year: int, month: int) -> int:
+    """Count working days in a month (weekdays minus public holidays)."""
+    holidays = get_finnish_public_holidays(year)
+    _, days_in_month = monthrange(year, month)
+
+    working_days = 0
+    for day in range(1, days_in_month + 1):
+        d = date(year, month, day)
+        # Weekday (0=Mon, 6=Sun) and not a holiday
+        if d.weekday() < 5 and d not in holidays:
+            working_days += 1
+
+    return working_days
 
 # Initialize FastMCP server
 mcp = FastMCP("harvest-api")
@@ -300,6 +361,108 @@ async def get_unsubmitted_timesheets(
     }
     
     return json.dumps(filtered_response, indent=2)
+
+
+@mcp.tool()
+async def get_monthly_work_percentage(
+    year: int,
+    month: int,
+    hours_per_day: float = 7.5,
+):
+    """Calculate work percentage for a given month compared to full-time.
+
+    Returns a summary with total hours, expected hours, and work percentage.
+    Categorizes time entries into actual work, public holidays, absences, etc.
+
+    Args:
+        year: The year (e.g., 2025)
+        month: The month (1-12)
+        hours_per_day: Hours per working day (default 7.5 for Finland)
+    """
+    # Fetch time entries for the month
+    from_date = f"{year}-{month:02d}-01"
+    _, last_day = monthrange(year, month)
+    to_date = f"{year}-{month:02d}-{last_day:02d}"
+
+    params = {"from": from_date, "to": to_date, "per_page": "2000"}
+    response = await harvest_request("time_entries", params)
+
+    entries = response.get("time_entries", [])
+
+    # Categorize entries based on task name
+    absence_keywords = ["unpaid absence", "palkaton"]
+    holiday_keywords = ["public holiday", "arkipyhä", "holiday"]
+    leave_keywords = ["day-off", "flextime", "saldo", "vacation", "loma", "sick", "sairas"]
+
+    total_hours = 0.0
+    actual_work_hours = 0.0
+    public_holiday_hours = 0.0
+    paid_leave_hours = 0.0
+    unpaid_absence_hours = 0.0
+
+    by_client = {}
+    by_category = {
+        "actual_work": 0.0,
+        "public_holiday": 0.0,
+        "paid_leave": 0.0,
+        "unpaid_absence": 0.0,
+    }
+
+    for entry in entries:
+        hours = entry.get("hours", 0)
+        total_hours += hours
+
+        task_name = entry.get("task", {}).get("name", "").lower()
+        client_name = entry.get("client", {}).get("name", "Unknown")
+
+        # Categorize
+        if any(kw in task_name for kw in absence_keywords):
+            unpaid_absence_hours += hours
+            by_category["unpaid_absence"] += hours
+        elif any(kw in task_name for kw in holiday_keywords):
+            public_holiday_hours += hours
+            by_category["public_holiday"] += hours
+        elif any(kw in task_name for kw in leave_keywords):
+            paid_leave_hours += hours
+            by_category["paid_leave"] += hours
+        else:
+            actual_work_hours += hours
+            by_category["actual_work"] += hours
+
+            # Track by client for actual work only
+            if client_name not in by_client:
+                by_client[client_name] = 0.0
+            by_client[client_name] += hours
+
+    # Calculate expected hours
+    working_days = count_working_days(year, month)
+    expected_hours = working_days * hours_per_day
+
+    # Calculate percentages
+    paid_hours = total_hours - unpaid_absence_hours
+    work_percentage = (paid_hours / expected_hours * 100) if expected_hours > 0 else 0
+
+    result = {
+        "period": f"{year}-{month:02d}",
+        "working_days": working_days,
+        "hours_per_day": hours_per_day,
+        "expected_hours": expected_hours,
+        "summary": {
+            "total_logged_hours": round(total_hours, 2),
+            "paid_hours": round(paid_hours, 2),
+            "unpaid_absence_hours": round(unpaid_absence_hours, 2),
+            "work_percentage": round(work_percentage, 1),
+        },
+        "breakdown": {
+            "actual_work": round(actual_work_hours, 2),
+            "public_holidays": round(public_holiday_hours, 2),
+            "paid_leave": round(paid_leave_hours, 2),
+            "unpaid_absence": round(unpaid_absence_hours, 2),
+        },
+        "by_client": {k: round(v, 2) for k, v in sorted(by_client.items(), key=lambda x: -x[1])},
+    }
+
+    return json.dumps(result, indent=2)
 
 
 if __name__ == "__main__":
