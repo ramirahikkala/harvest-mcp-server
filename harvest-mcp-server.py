@@ -214,6 +214,27 @@ async def stop_timer(time_entry_id: int):
 
 
 @mcp.tool()
+async def update_time_entry(time_entry_id: int, hours: float = None, notes: str = None):
+    """Update a time entry.
+
+    Args:
+        time_entry_id: The ID of the time entry to update
+        hours: The new hours value
+        notes: The new notes value
+    """
+    params = {}
+    if hours is not None:
+        params["hours"] = hours
+    if notes is not None:
+        params["notes"] = notes
+
+    response = await harvest_request(
+        f"time_entries/{time_entry_id}", params, method="PATCH"
+    )
+    return json.dumps(response, indent=2)
+
+
+@mcp.tool()
 async def start_timer(project_id: int, task_id: int, notes: str = None):
     """Start a new timer.
 
@@ -222,9 +243,11 @@ async def start_timer(project_id: int, task_id: int, notes: str = None):
         task_id: The ID of the task to associate with the time entry
         notes: Optional notes about the time entry
     """
+    from datetime import date
     params = {
         "project_id": project_id,
         "task_id": task_id,
+        "spent_date": date.today().isoformat(),
     }
 
     if notes:
